@@ -422,8 +422,12 @@ class VRChatOSCApp:
                 if self._chatbox_counter >= refresh_interval:
                     self._chatbox_counter = 0
                     
+                    # 获取CPU最大值
+                    cpu_count = psutil.cpu_count(logical=True)
+                    cpu_max = cpu_count * 100
+                    
                     chatbox_message = f"💻 硬件监控\n"
-                    chatbox_message += f"CPU: {self.cpu_usage:.1f}%"
+                    chatbox_message += f"CPU: {self.cpu_usage:.1f}%/{cpu_max:.0f}%"
                     if self.cpu_temp > 0:
                         chatbox_message += f" ({self.cpu_temp}°C)"
                     chatbox_message += f"\n内存: {self.memory_info['percent']:.1f}% ({self.memory_info['used_gb']:.1f}GB/{self.memory_info['total_gb']:.1f}GB)"
@@ -456,7 +460,7 @@ class VRChatOSCApp:
             cpu_max = cpu_count * 100
             
             # 更新CPU
-            self.cpu_label.config(text=f"{self.cpu_usage:.1f}%")
+            self.cpu_label.config(text=f"{self.cpu_usage:.1f}%/{cpu_max:.0f}%")
             self.cpu_bar['value'] = self.cpu_usage
             self.cpu_bar['maximum'] = cpu_max
             
