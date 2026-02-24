@@ -254,6 +254,66 @@ class HardwareMonitor:
             return "Unknown CPU"
         except Exception as e:
             return "Unknown CPU"
+    
+    def get_gpu_usage(self):
+        """获取GPU使用率"""
+        try:
+            import subprocess
+            result = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'],
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                usage = float(result.stdout.strip())
+                return round(usage, 1)
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+            pass
+        return 0.0
+    
+    def get_vram_usage(self):
+        """获取VRAM使用率"""
+        try:
+            import subprocess
+            # 获取VRAM使用情况和总量
+            result = subprocess.run(['nvidia-smi', '--query-gpu=memory.used,memory.total', '--format=csv,noheader,nounits'],
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                parts = result.stdout.strip().split(',')
+                used_mb = float(parts[0].strip())
+                total_mb = float(parts[1].strip())
+                percent = (used_mb / total_mb) * 100
+                return {
+                    'percent': round(percent, 1),
+                    'used_gb': round(used_mb / 1024, 2),
+                    'total_gb': round(total_mb / 1024, 2)
+                }
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError):
+            pass
+        return {'percent': 0, 'used_gb': 0, 'total_gb': 0}
+    
+    def get_gpu_model(self):
+        """获取GPU型号"""
+        try:
+            import subprocess
+            result = subprocess.run(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                model = result.stdout.strip()
+                return model
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        return "Unknown GPU"
+    
+    def get_gpu_temp(self):
+        """获取GPU温度"""
+        try:
+            import subprocess
+            result = subprocess.run(['nvidia-smi', '--query-gpu=temperature.gpu', '--format=csv,noheader,nounits'],
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                temp = float(result.stdout.strip())
+                return round(temp, 1)
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+            pass
+        return 0.0
 
 
 class VRChatOSCApp:
@@ -336,13 +396,26 @@ class VRChatOSCApp:
         self.memory_bar = ttk.Progressbar(info_frame, length=300, mode='determinate')
         self.memory_bar.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 10))
         
-        # 磁盘信息
-        ttk.Label(info_frame, text="磁盘使用率:").grid(row=5, column=0, sticky=tk.W)
-        self.disk_label = ttk.Label(info_frame, text="0.0%", font=('Arial', 12, 'bold'))
-        self.disk_label.grid(row=5, column=1, sticky=tk.W, padx=(10, 0))
+        # GPU型号
+        ttk.Label(info_frame, text="GPU 型号:").grid(row=5, column=0, sticky=tk.W)
+        self.gpu_model_label = ttk.Label(info_frame, text="Unknown", font=('Arial', 10))
+        self.gpu_model_label.grid(row=5, column=1, sticky=tk.W, padx=(10, 0))
         
-        self.disk_bar = ttk.Progressbar(info_frame, length=300, mode='determinate')
-        self.disk_bar.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 10))
+        # GPU信息
+        ttk.Label(info_frame, text="GPU 使用率:").grid(row=6, column=0, sticky=tk.W)
+        self.gpu_label = ttk.Label(info_frame, text="0.0%", font=('Arial', 12, 'bold'))
+        self.gpu_label.grid(row=6, column=1, sticky=tk.W, padx=(10, 0))
+        
+        self.gpu_bar = ttk.Progressbar(info_frame, length=300, mode='determinate')
+        self.gpu_bar.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 10))
+        
+        # VRAM信息
+        ttk.Label(info_frame, text="VRAM 使用率:").grid(row=8, column=0, sticky=tk.W)
+        self.vram_label = ttk.Label(info_frame, text="0.0%", font=('Arial', 12, 'bold'))
+        self.vram_label.grid(row=8, column=1, sticky=tk.W, padx=(10, 0))
+        
+        self.vram_bar = ttk.Progressbar(info_frame, length=300, mode='determinate')
+        self.vram_bar.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 10))
         
         # 详细信息
         detail_frame = ttk.LabelFrame(main_frame, text="详细信息", padding="10")
@@ -419,7 +492,10 @@ class VRChatOSCApp:
         """更新硬件信息"""
         self.cpu_usage = self.monitor.get_cpu_usage()
         self.memory_info = self.monitor.get_memory_usage()
-        self.disk_info = self.monitor.get_disk_usage()
+        self.gpu_usage = self.monitor.get_gpu_usage()
+        self.vram_info = self.monitor.get_vram_usage()
+        self.gpu_model = self.monitor.get_gpu_model()
+        self.gpu_temp = self.monitor.get_gpu_temp()
         self.network_info = self.monitor.get_network_stats()
         self.cpu_temp = self.monitor.get_cpu_temp()
         self.cpu_model = self.monitor.get_cpu_model()
@@ -445,13 +521,16 @@ class VRChatOSCApp:
                     cpu_count = psutil.cpu_count(logical=True)
                     cpu_max = cpu_count * 100
                     
-                    chatbox_message = f"💻 硬件监控\n"
-                    chatbox_message += f"CPU: {self.cpu_model}\n"
+                    chatbox_message = f"CPU: {self.cpu_model}\n"
                     chatbox_message += f"使用率: {self.cpu_usage:.1f}%/{cpu_max:.0f}%"
                     if self.cpu_temp > 0:
                         chatbox_message += f" ({self.cpu_temp}°C)"
                     chatbox_message += f"\n内存: {self.memory_info['percent']:.1f}% ({self.memory_info['used_gb']:.1f}GB/{self.memory_info['total_gb']:.1f}GB)"
-                    chatbox_message += f"\n磁盘: {self.disk_info['percent']:.1f}% ({self.disk_info['used_gb']:.1f}GB/{self.disk_info['total_gb']:.1f}GB)"
+                    chatbox_message += f"\nGPU: {self.gpu_model}\n"
+                    chatbox_message += f"使用率: {self.gpu_usage:.1f}%"
+                    if self.gpu_temp > 0:
+                        chatbox_message += f" ({self.gpu_temp}°C)"
+                    chatbox_message += f"\nVRAM: {self.vram_info['percent']:.1f}% ({self.vram_info['used_gb']:.1f}GB/{self.vram_info['total_gb']:.1f}GB)"
                     
                     self.osc_sender.send_chatbox(chatbox_message)
             
@@ -464,8 +543,10 @@ class VRChatOSCApp:
                 self.osc_sender.send(f"{base_address}/CPU", self.cpu_usage / 100.0)
                 # 发送内存使用率（0-1范围）
                 self.osc_sender.send(f"{base_address}/Memory", self.memory_info['percent'] / 100.0)
-                # 发送磁盘使用率（0-1范围）
-                self.osc_sender.send(f"{base_address}/Disk", self.disk_info['percent'] / 100.0)
+                # 发送GPU使用率（0-1范围）
+                self.osc_sender.send(f"{base_address}/GPU", self.gpu_usage / 100.0)
+                # 发送VRAM使用率（0-1范围）
+                self.osc_sender.send(f"{base_address}/VRAM", self.vram_info['percent'] / 100.0)
                 # 发送CPU温度（摄氏度）
                 if self.cpu_temp > 0:
                     self.osc_sender.send(f"{base_address}/CPUTemp", self.cpu_temp)
@@ -507,17 +588,26 @@ class VRChatOSCApp:
             else:
                 self.memory_label.config(foreground="green")
             
-            # 更新磁盘
-            self.disk_label.config(text=f"{self.disk_info['percent']:.1f}%")
-            self.disk_bar['value'] = self.disk_info['percent']
+            # 更新GPU型号
+            self.gpu_model_label.config(text=self.gpu_model)
+            
+            # 更新GPU
+            self.gpu_label.config(text=f"{self.gpu_usage:.1f}%")
+            self.gpu_bar['value'] = self.gpu_usage
+            
+            # 更新VRAM
+            self.vram_label.config(text=f"{self.vram_info['percent']:.1f}%")
+            self.vram_bar['value'] = self.vram_info['percent']
             
             # 更新详细信息
             detail_text = f"""CPU 使用率: {self.cpu_usage:.1f}%
 CPU 温度: {self.cpu_temp}°C
 内存使用: {self.memory_info['used_gb']} GB / {self.memory_info['total_gb']} GB ({self.memory_info['percent']:.1f}%)
 内存可用: {self.memory_info['available_gb']} GB
-磁盘使用: {self.disk_info['used_gb']} GB / {self.disk_info['total_gb']} GB ({self.disk_info['percent']:.1f}%)
-磁盘剩余: {self.disk_info['free_gb']} GB
+GPU 型号: {self.gpu_model}
+GPU 使用率: {self.gpu_usage:.1f}%
+GPU 温度: {self.gpu_temp}°C
+VRAM 使用: {self.vram_info['used_gb']} GB / {self.vram_info['total_gb']} GB ({self.vram_info['percent']:.1f}%)
 网络发送: {self.network_info['bytes_sent']} MB
 网络接收: {self.network_info['bytes_recv']} MB"""
             
