@@ -255,6 +255,40 @@ class HardwareMonitor:
         except Exception as e:
             return "Unknown CPU"
     
+    def simplify_cpu_model(self, model):
+        """简化CPU型号显示"""
+        import re
+        # Intel CPU简化
+        if 'Intel' in model:
+            # 提取 i3/i5/i7/i9 和后面的数字（包含K/KF等后缀）
+            match = re.search(r'i[3579][-\s]*(\d+[A-Z]*)', model)
+            if match:
+                return f"i{match.group(1)}"
+        # AMD CPU简化
+        elif 'AMD' in model:
+            # 提取 Ryzen 和数字
+            match = re.search(r'Ryzen\s*\d+\s*\d+[A-Z]*', model)
+            if match:
+                return match.group(0).replace(' ', '')
+        # 如果无法提取，返回前15个字符
+        return model[:15]
+    
+    def simplify_gpu_model(self, model):
+        """简化GPU型号显示"""
+        import re
+        # NVIDIA GPU简化
+        if 'NVIDIA' in model or 'RTX' in model or 'GTX' in model:
+            # 提取 RTX/GTX 和数字
+            match = re.search(r'(RTX|GTX)\s*\d+[A-Z]*', model)
+            if match:
+                return match.group(0).replace(' ', '')
+        # AMD GPU简化
+        elif 'AMD' in model or 'RX' in model:
+            match = re.search(r'RX\s*\d+[A-Z]*', model)
+            if match:
+                return match.group(0).replace(' ', '')
+        return model[:15]  # 截断到15个字符
+    
     def get_gpu_usage(self):
         """获取GPU使用率"""
         try:
@@ -521,12 +555,12 @@ class VRChatOSCApp:
                     cpu_count = psutil.cpu_count(logical=True)
                     cpu_max = cpu_count * 100
                     
-                    chatbox_message = f"CPU: {self.cpu_model}\n"
+                    chatbox_message = f"CPU: {self.monitor.simplify_cpu_model(self.cpu_model)}\n"
                     chatbox_message += f"使用率: {self.cpu_usage:.1f}%/{cpu_max:.0f}%"
                     if self.cpu_temp > 0:
                         chatbox_message += f" ({self.cpu_temp}°C)"
                     chatbox_message += f"\n内存: {self.memory_info['percent']:.1f}% ({self.memory_info['used_gb']:.1f}GB/{self.memory_info['total_gb']:.1f}GB)"
-                    chatbox_message += f"\nGPU: {self.gpu_model}\n"
+                    chatbox_message += f"\nGPU: {self.monitor.simplify_gpu_model(self.gpu_model)}\n"
                     chatbox_message += f"使用率: {self.gpu_usage:.1f}%"
                     if self.gpu_temp > 0:
                         chatbox_message += f" ({self.gpu_temp}°C)"
