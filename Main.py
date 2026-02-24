@@ -63,6 +63,40 @@ class OSCSender:
         except Exception as e:
             print(f"发送OSC消息失败: {e}")
     
+    def send_chatbox(self, message, send_immediately=True):
+        """发送消息到VRChat聊天框
+        
+        Args:
+            message: 要发送的消息文本
+            send_immediately: 是否立即发送（True）或仅输入不发送（False）
+        """
+        try:
+            # VRChat聊天框OSC地址
+            # 使用正确的OSC协议发送消息
+            # 直接发送消息，不触发虚拟键盘
+            message_bytes = message.encode('utf-8')
+            
+            # 构建OSC消息：地址 + 类型标签 + 消息内容 + 是否立即发送
+            address = "/chatbox/input"
+            address_bytes = address.encode('utf-8')
+            address_bytes += b'\x00' * ((4 - len(address_bytes) % 4) % 4)
+            
+            # 类型标签：两个参数，字符串和布尔值
+            type_tag = b',sT\x00'
+            
+            # 消息内容（字符串）
+            value_bytes = message_bytes
+            value_bytes += b'\x00' * ((4 - len(value_bytes) % 4) % 4)
+            
+            # 组合OSC消息
+            osc_message = address_bytes + type_tag + value_bytes
+            
+            # 发送消息
+            self.socket.sendto(osc_message, (self.host, self.port))
+            
+        except Exception as e:
+            print(f"发送聊天框消息失败: {e}")
+    
     def close(self):
         """关闭socket"""
         self.socket.close()
@@ -246,6 +280,19 @@ class VRChatOSCApp:
         self.status_label = ttk.Label(osc_frame, text="未连接", foreground="red")
         self.status_label.grid(row=0, column=5, padx=(10, 0))
         
+        # 聊天框配置区域
+        chatbox_frame = ttk.LabelFrame(main_frame, text="聊天框配置", padding="10")
+        chatbox_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        self.enable_chatbox = tk.BooleanVar(value=True)
+        self.chatbox_check = ttk.Checkbutton(chatbox_frame, text="启用聊天框显示", variable=self.enable_chatbox)
+        self.chatbox_check.grid(row=0, column=0, sticky=tk.W)
+        
+        ttk.Label(chatbox_frame, text="刷新间隔(秒):").grid(row=0, column=1, padx=(20, 5), sticky=tk.W)
+        self.refresh_interval = ttk.Entry(chatbox_frame, width=8)
+        self.refresh_interval.insert(0, "3")
+        self.refresh_interval.grid(row=0, column=2, padx=(0, 10), sticky=tk.W)
+        
         # 硬件信息显示区域
         info_frame = ttk.LabelFrame(main_frame, text="硬件信息", padding="10")
         info_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
@@ -355,6 +402,31 @@ class VRChatOSCApp:
         
         # 发送OSC消息
         if self.osc_sender:
+            # 发送到VRChat聊天框（根据刷新间隔）
+            if self.enable_chatbox.get():
+                try:
+                    refresh_interval = int(self.refresh_interval.get())
+                except ValueError:
+                    refresh_interval = 3
+                
+                # 使用计数器控制聊天框刷新频率
+                if not hasattr(self, '_chatbox_counter'):
+                    self._chatbox_counter = 0
+                
+                self._chatbox_counter += 1
+                if self._chatbox_counter >= refresh_interval:
+                    self._chatbox_counter = 0
+                    
+                    chatbox_message = f"💻 硬件监控\n"
+                    chatbox_message += f"CPU: {self.cpu_usage:.1f}%"
+                    if self.cpu_temp > 0:
+                        chatbox_message += f" ({self.cpu_temp}°C)"
+                    chatbox_message += f"\n内存: {self.memory_info['percent']:.1f}% ({self.memory_info['used_gb']:.1f}GB/{self.memory_info['total_gb']:.1f}GB)"
+                    chatbox_message += f"\n磁盘: {self.disk_info['percent']:.1f}% ({self.disk_info['used_gb']:.1f}GB/{self.disk_info['total_gb']:.1f}GB)"
+                    
+                    self.osc_sender.send_chatbox(chatbox_message, send_immediately=True)
+            
+            # 同时发送到avatar parameters（用于Avatar显示，每秒发送）
             prefix = self.prefix_entry.get()
             base_address = f"/avatar/parameters/{prefix}"
             
