@@ -258,18 +258,37 @@ class HardwareMonitor:
     def simplify_cpu_model(self, model):
         """简化CPU型号显示"""
         import re
+        # 移除 Intel(R) 和 Xeon(R) 等标记
+        model_clean = model.replace('(R)', '').replace('(TM)', '')
+        
         # Intel CPU简化
-        if 'Intel' in model:
+        if 'Intel' in model_clean:
+            # 提取 Xeon E5/E7/E3 等服务器CPU型号（考虑CPU关键词）
+            match = re.search(r'Xeon\s+CPU\s+(E[357][-\s]*\d+[A-Z]*\s*v?\d*)', model_clean)
+            if match:
+                return match.group(1).replace(' ', '')
+            # 提取 Xeon E5/E7/E3 等（无CPU关键词）
+            match = re.search(r'Xeon\s+(E[357][-\s]*\d+[A-Z]*\s*v?\d*)', model_clean)
+            if match:
+                return match.group(1).replace(' ', '')
+            # 提取 Xeon Gold/Platinum 等型号
+            match = re.search(r'Xeon\s+(Gold|Platinum|Silver|Bronze)\s+(\d+[A-Z]*)', model_clean)
+            if match:
+                return f"{match.group(1)}{match.group(2)}"
             # 提取 i3/i5/i7/i9 和后面的数字（包含K/KF等后缀）
-            match = re.search(r'i[3579][-\s]*(\d+[A-Z]*)', model)
+            match = re.search(r'i[3579][-\s]*(\d+[A-Z]*)', model_clean)
             if match:
                 return f"i{match.group(1)}"
         # AMD CPU简化
-        elif 'AMD' in model:
+        elif 'AMD' in model_clean:
             # 提取 Ryzen 和数字
-            match = re.search(r'Ryzen\s*\d+\s*\d+[A-Z]*', model)
+            match = re.search(r'Ryzen\s*\d+\s*\d+[A-Z]*', model_clean)
             if match:
                 return match.group(0).replace(' ', '')
+            # 提取 EPYC 服务器CPU
+            match = re.search(r'EPYC\s*(\d+[A-Z]*)', model_clean)
+            if match:
+                return f"EPYC{match.group(1)}"
         # 如果无法提取，返回前15个字符
         return model[:15]
     
