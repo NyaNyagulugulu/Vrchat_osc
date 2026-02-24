@@ -112,10 +112,13 @@ class HardwareMonitor:
     
     def get_cpu_usage(self):
         """
-        获取CPU使用率（基于/proc/stat的标准Linux计算方法）
-        返回0-100之间的使用率百分比
+        获取CPU使用率（支持多核CPU）
+        返回所有核心的总使用率百分比（例如16核系统最大为1600%）
         """
         try:
+            # 获取CPU核心数
+            cpu_count = psutil.cpu_count(logical=True)
+            
             with open('/proc/stat', 'r') as f:
                 lines = f.readlines()
             
@@ -163,16 +166,19 @@ class HardwareMonitor:
             if total_delta == 0:
                 return 0.0
             
-            # 计算使用率：非空闲时间的比例
+            # 计算使用率：非空闲时间的比例（0-100）
             busy_delta = total_delta - idle_delta - iowait_delta
             cpu_usage = (busy_delta / total_delta) * 100
             
+            # 乘以核心数，得到所有核心的总使用率
+            total_cpu_usage = cpu_usage * cpu_count
+            
             # 更新历史记录
-            self.cpu_history.append(cpu_usage)
+            self.cpu_history.append(total_cpu_usage)
             self.prev_cpu_times = (user, nice, system, idle, iowait, irq, softirq, steal)
             self.prev_time = current_time
             
-            return round(cpu_usage, 2)
+            return round(total_cpu_usage, 2)
         
         except Exception as e:
             print(f"获取CPU使用率失败: {e}")
@@ -445,14 +451,20 @@ class VRChatOSCApp:
     def update_ui(self):
         """更新UI显示"""
         if self.is_running:
+            # 获取CPU核心数用于计算最大值
+            cpu_count = psutil.cpu_count(logical=True)
+            cpu_max = cpu_count * 100
+            
             # 更新CPU
             self.cpu_label.config(text=f"{self.cpu_usage:.1f}%")
             self.cpu_bar['value'] = self.cpu_usage
+            self.cpu_bar['maximum'] = cpu_max
             
-            # 根据使用率设置颜色
-            if self.cpu_usage > 80:
+            # 根据使用率设置颜色（相对于最大值）
+            usage_percent = (self.cpu_usage / cpu_max) * 100
+            if usage_percent > 80:
                 self.cpu_label.config(foreground="red")
-            elif self.cpu_usage > 50:
+            elif usage_percent > 50:
                 self.cpu_label.config(foreground="orange")
             else:
                 self.cpu_label.config(foreground="green")
