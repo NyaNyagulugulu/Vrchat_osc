@@ -241,6 +241,19 @@ class HardwareMonitor:
             return 0.0
         except Exception as e:
             return 0.0
+    
+    def get_cpu_model(self):
+        """获取CPU型号"""
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                for line in f:
+                    if line.startswith('model name'):
+                        # 提取型号名称（冒号后面的部分）
+                        model = line.split(':', 1)[1].strip()
+                        return model
+            return "Unknown CPU"
+        except Exception as e:
+            return "Unknown CPU"
 
 
 class VRChatOSCApp:
@@ -302,29 +315,34 @@ class VRChatOSCApp:
         info_frame = ttk.LabelFrame(main_frame, text="硬件信息", padding="10")
         info_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
         
+        # CPU型号
+        ttk.Label(info_frame, text="CPU 型号:").grid(row=0, column=0, sticky=tk.W)
+        self.cpu_model_label = ttk.Label(info_frame, text="Unknown", font=('Arial', 10))
+        self.cpu_model_label.grid(row=0, column=1, sticky=tk.W, padx=(10, 0))
+        
         # CPU信息
-        ttk.Label(info_frame, text="CPU 使用率:").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(info_frame, text="CPU 使用率:").grid(row=1, column=0, sticky=tk.W)
         self.cpu_label = ttk.Label(info_frame, text="0.0%", font=('Arial', 14, 'bold'))
-        self.cpu_label.grid(row=0, column=1, sticky=tk.W, padx=(10, 0))
+        self.cpu_label.grid(row=1, column=1, sticky=tk.W, padx=(10, 0))
         
         self.cpu_bar = ttk.Progressbar(info_frame, length=300, mode='determinate')
-        self.cpu_bar.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 10))
+        self.cpu_bar.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 10))
         
         # 内存信息
-        ttk.Label(info_frame, text="内存使用率:").grid(row=2, column=0, sticky=tk.W)
+        ttk.Label(info_frame, text="内存使用率:").grid(row=3, column=0, sticky=tk.W)
         self.memory_label = ttk.Label(info_frame, text="0.0%", font=('Arial', 14, 'bold'))
-        self.memory_label.grid(row=2, column=1, sticky=tk.W, padx=(10, 0))
+        self.memory_label.grid(row=3, column=1, sticky=tk.W, padx=(10, 0))
         
         self.memory_bar = ttk.Progressbar(info_frame, length=300, mode='determinate')
-        self.memory_bar.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 10))
+        self.memory_bar.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 10))
         
         # 磁盘信息
-        ttk.Label(info_frame, text="磁盘使用率:").grid(row=4, column=0, sticky=tk.W)
+        ttk.Label(info_frame, text="磁盘使用率:").grid(row=5, column=0, sticky=tk.W)
         self.disk_label = ttk.Label(info_frame, text="0.0%", font=('Arial', 12, 'bold'))
-        self.disk_label.grid(row=4, column=1, sticky=tk.W, padx=(10, 0))
+        self.disk_label.grid(row=5, column=1, sticky=tk.W, padx=(10, 0))
         
         self.disk_bar = ttk.Progressbar(info_frame, length=300, mode='determinate')
-        self.disk_bar.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 10))
+        self.disk_bar.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 10))
         
         # 详细信息
         detail_frame = ttk.LabelFrame(main_frame, text="详细信息", padding="10")
@@ -404,6 +422,7 @@ class VRChatOSCApp:
         self.disk_info = self.monitor.get_disk_usage()
         self.network_info = self.monitor.get_network_stats()
         self.cpu_temp = self.monitor.get_cpu_temp()
+        self.cpu_model = self.monitor.get_cpu_model()
         
         # 发送OSC消息
         if self.osc_sender:
@@ -427,7 +446,8 @@ class VRChatOSCApp:
                     cpu_max = cpu_count * 100
                     
                     chatbox_message = f"💻 硬件监控\n"
-                    chatbox_message += f"CPU: {self.cpu_usage:.1f}%/{cpu_max:.0f}%"
+                    chatbox_message += f"CPU: {self.cpu_model}\n"
+                    chatbox_message += f"使用率: {self.cpu_usage:.1f}%/{cpu_max:.0f}%"
                     if self.cpu_temp > 0:
                         chatbox_message += f" ({self.cpu_temp}°C)"
                     chatbox_message += f"\n内存: {self.memory_info['percent']:.1f}% ({self.memory_info['used_gb']:.1f}GB/{self.memory_info['total_gb']:.1f}GB)"
@@ -458,6 +478,9 @@ class VRChatOSCApp:
             # 获取CPU核心数用于计算最大值
             cpu_count = psutil.cpu_count(logical=True)
             cpu_max = cpu_count * 100
+            
+            # 更新CPU型号
+            self.cpu_model_label.config(text=self.cpu_model)
             
             # 更新CPU
             self.cpu_label.config(text=f"{self.cpu_usage:.1f}%/{cpu_max:.0f}%")
