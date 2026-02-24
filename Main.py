@@ -63,17 +63,16 @@ class OSCSender:
         except Exception as e:
             print(f"发送OSC消息失败: {e}")
     
-    def send_chatbox(self, message, send_immediately=True):
+    def send_chatbox(self, message):
         """发送消息到VRChat聊天框
         
         Args:
             message: 要发送的消息文本
-            send_immediately: 是否立即发送（True）或仅输入不发送（False）
         """
         try:
             # VRChat聊天框OSC地址
             # 使用正确的OSC协议发送消息
-            # 直接发送消息，不触发虚拟键盘
+            # 直接发送消息，不触发虚拟键盘，不设置正在输入状态
             message_bytes = message.encode('utf-8')
             
             # 构建OSC消息：地址 + 类型标签 + 消息内容 + 是否立即发送
@@ -81,7 +80,7 @@ class OSCSender:
             address_bytes = address.encode('utf-8')
             address_bytes += b'\x00' * ((4 - len(address_bytes) % 4) % 4)
             
-            # 类型标签：两个参数，字符串和布尔值
+            # 类型标签：两个参数，字符串和布尔值（True表示立即发送）
             type_tag = b',sT\x00'
             
             # 消息内容（字符串）
@@ -424,7 +423,7 @@ class VRChatOSCApp:
                     chatbox_message += f"\n内存: {self.memory_info['percent']:.1f}% ({self.memory_info['used_gb']:.1f}GB/{self.memory_info['total_gb']:.1f}GB)"
                     chatbox_message += f"\n磁盘: {self.disk_info['percent']:.1f}% ({self.disk_info['used_gb']:.1f}GB/{self.disk_info['total_gb']:.1f}GB)"
                     
-                    self.osc_sender.send_chatbox(chatbox_message, send_immediately=True)
+                    self.osc_sender.send_chatbox(chatbox_message)
             
             # 同时发送到avatar parameters（用于Avatar显示，每秒发送）
             prefix = self.prefix_entry.get()
