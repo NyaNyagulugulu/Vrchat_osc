@@ -107,8 +107,32 @@ class HardwareMonitor:
     def __init__(self):
         self.cpu_history = deque(maxlen=60)
         self.memory_history = deque(maxlen=60)
-        self.prev_cpu_times = None
-        self.prev_time = None
+        self.gpu_info = None
+        self.gpu_info_last_update = 0
+        self.enable_gpu_monitor = True
+        
+        # 初始化CPU时间基准，避免第一次调用返回0
+        try:
+            with open('/proc/stat', 'r') as f:
+                lines = f.readlines()
+            cpu_line = lines[0].strip()
+            parts = cpu_line.split()
+            
+            user = int(parts[1])
+            nice = int(parts[2])
+            system = int(parts[3])
+            idle = int(parts[4])
+            iowait = int(parts[5])
+            irq = int(parts[6])
+            softirq = int(parts[7])
+            steal = int(parts[8]) if len(parts) > 8 else 0
+            
+            self.prev_cpu_times = (user, nice, system, idle, iowait, irq, softirq, steal)
+            self.prev_time = time.time()
+        except Exception as e:
+            print(f"初始化CPU时间基准失败: {e}")
+            self.prev_cpu_times = None
+            self.prev_time = None
     
     def get_cpu_usage(self):
         """
@@ -138,8 +162,6 @@ class HardwareMonitor:
             current_time = time.time()
             
             if self.prev_cpu_times is None:
-                self.prev_cpu_times = (user, nice, system, idle, iowait, irq, softirq, steal)
-                self.prev_time = current_time
                 return 0.0
             
             prev_user, prev_nice, prev_system, prev_idle, prev_iowait, prev_irq, prev_softirq, prev_steal = self.prev_cpu_times
@@ -308,65 +330,45 @@ class HardwareMonitor:
                 return match.group(0).replace(' ', '')
         return model[:15]  # 截断到15个字符
     
-    def get_gpu_usage(self):
-        """获取GPU使用率"""
+    def get_all_gpu_info(self):
+        """一次性获取所有GPU信息，避免多次调用nvidia-smi
+        
+        Returns:
+            dict: 包含 GPU 使用率、VRAM、型号、温度等信息
+        """
         try:
             import subprocess
-            result = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'],
-                                  capture_output=True, text=True, timeout=5)
+            # 一次性获取所有需要的GPU数据
+            result = subprocess.run(
+                ['nvidia-smi', 
+                 '--query-gpu=utilization.gpu,memory.used,memory.total,name,temperature.gpu',
+                 '--format=csv,noheader,nounits'],
+                capture_output=True, 
+                text=True, 
+                timeout=5
+            )
             if result.returncode == 0:
-                usage = float(result.stdout.strip())
-                return round(usage, 1)
-        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
-            pass
-        return 0.0
-    
-    def get_vram_usage(self):
-        """获取VRAM使用率"""
-        try:
-            import subprocess
-            # 获取VRAM使用情况和总量
-            result = subprocess.run(['nvidia-smi', '--query-gpu=memory.used,memory.total', '--format=csv,noheader,nounits'],
-                                  capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                parts = result.stdout.strip().split(',')
-                used_mb = float(parts[0].strip())
-                total_mb = float(parts[1].strip())
-                percent = (used_mb / total_mb) * 100
+                parts = [p.strip() for p in result.stdout.strip().split(',')]
+                # 返回格式：使用率, VRAM已用, VRAM总量, 型号, 温度
                 return {
-                    'percent': round(percent, 1),
-                    'used_gb': round(used_mb / 1024, 2),
-                    'total_gb': round(total_mb / 1024, 2)
+                    'usage': round(float(parts[0]), 1),
+                    'vram_used_gb': round(float(parts[1]) / 1024, 2),
+                    'vram_total_gb': round(float(parts[2]) / 1024, 2),
+                    'vram_percent': round((float(parts[1]) / float(parts[2])) * 100, 1),
+                    'model': parts[3],
+                    'temp': round(float(parts[4]), 1)
                 }
         except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError):
             pass
-        return {'percent': 0, 'used_gb': 0, 'total_gb': 0}
-    
-    def get_gpu_model(self):
-        """获取GPU型号"""
-        try:
-            import subprocess
-            result = subprocess.run(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
-                                  capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                model = result.stdout.strip()
-                return model
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-        return "Unknown GPU"
-    
-    def get_gpu_temp(self):
-        """获取GPU温度"""
-        try:
-            import subprocess
-            result = subprocess.run(['nvidia-smi', '--query-gpu=temperature.gpu', '--format=csv,noheader,nounits'],
-                                  capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                temp = float(result.stdout.strip())
-                return round(temp, 1)
-        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
-            pass
-        return 0.0
+        # 返回默认值
+        return {
+            'usage': 0.0,
+            'vram_used_gb': 0.0,
+            'vram_total_gb': 0.0,
+            'vram_percent': 0.0,
+            'model': "Unknown GPU",
+            'temp': 0.0
+        }
 
 
 class VRChatOSCApp:
@@ -423,6 +425,10 @@ class VRChatOSCApp:
         self.refresh_interval = ttk.Entry(chatbox_frame, width=8)
         self.refresh_interval.insert(0, "3")
         self.refresh_interval.grid(row=0, column=2, padx=(0, 10), sticky=tk.W)
+        
+        self.enable_gpu = tk.BooleanVar(value=True)
+        self.gpu_check = ttk.Checkbutton(chatbox_frame, text="启用GPU监控", variable=self.enable_gpu)
+        self.gpu_check.grid(row=0, column=3, padx=(10, 0), sticky=tk.W)
         
         # 硬件信息显示区域
         info_frame = ttk.LabelFrame(main_frame, text="硬件信息", padding="10")
@@ -516,6 +522,9 @@ class VRChatOSCApp:
             self.connect_btn.config(text="断开")
             self.status_label.config(text="已连接", foreground="green")
             
+            # 设置GPU监控状态
+            self.monitor.enable_gpu_monitor = self.enable_gpu.get()
+            
             # 启动监控线程
             self.monitor_thread = threading.Thread(target=self.monitor_loop, daemon=True)
             self.monitor_thread.start()
@@ -543,15 +552,36 @@ class VRChatOSCApp:
     
     def update_hardware_info(self):
         """更新硬件信息"""
+        # 动态更新GPU监控状态
+        self.monitor.enable_gpu_monitor = self.enable_gpu.get()
+        
         self.cpu_usage = self.monitor.get_cpu_usage()
         self.memory_info = self.monitor.get_memory_usage()
-        self.gpu_usage = self.monitor.get_gpu_usage()
-        self.vram_info = self.monitor.get_vram_usage()
-        self.gpu_model = self.monitor.get_gpu_model()
-        self.gpu_temp = self.monitor.get_gpu_temp()
         self.network_info = self.monitor.get_network_stats()
         self.cpu_temp = self.monitor.get_cpu_temp()
         self.cpu_model = self.monitor.get_cpu_model()
+        
+        # GPU信息每3秒采集一次，避免频繁调用nvidia-smi影响性能
+        current_time = time.time()
+        if self.monitor.enable_gpu_monitor and (current_time - self.monitor.gpu_info_last_update >= 3):
+            self.monitor.gpu_info = self.monitor.get_all_gpu_info()
+            self.monitor.gpu_info_last_update = current_time
+        
+        # 使用缓存的GPU信息
+        if self.monitor.enable_gpu_monitor and self.monitor.gpu_info:
+            self.gpu_usage = self.monitor.gpu_info['usage']
+            self.vram_info = {
+                'percent': self.monitor.gpu_info['vram_percent'],
+                'used_gb': self.monitor.gpu_info['vram_used_gb'],
+                'total_gb': self.monitor.gpu_info['vram_total_gb']
+            }
+            self.gpu_model = self.monitor.gpu_info['model']
+            self.gpu_temp = self.monitor.gpu_info['temp']
+        else:
+            self.gpu_usage = 0.0
+            self.vram_info = {'percent': 0, 'used_gb': 0, 'total_gb': 0}
+            self.gpu_model = "GPU Disabled"
+            self.gpu_temp = 0.0
         
         # 发送OSC消息
         if self.osc_sender:
